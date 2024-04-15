@@ -152,8 +152,12 @@ class MedSAM_Lite(nn.Module):
             multimask_output=False,
           ) # (B, 1, 256, 256)
         
-        # TODO: thresh 
+        thresh = .98
         # return those with iou_predictions > thresh
+        for k, iou in enumerate(iou_predictions):
+            print('iou', iou)
+            if iou < thresh:
+                low_res_masks[k] = torch.zeros_like(low_res_masks[k])
 
         return low_res_masks
 

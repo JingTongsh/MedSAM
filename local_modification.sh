@@ -1,14 +1,6 @@
 set -exuo pipefail
 
-python inference_3D.py \
-    -data_root prostate_processed/MedSAM_test/MR_Abd \
-    -pred_save_dir ./preds5/test \
-    -medsam_lite_checkpoint_path work_dir_ddp/MedSAM-Lite-Box-20240415-1132/medsam_lite_best.pth \
-    -num_workers 4 \
-    --save_overlay \
-    -png_save_dir ./preds5/test_overlay \
-    --overwrite
-
+# make symbolic link
 ln -s /sharedata/datasets/Renji_MRI/prostate_dataset/all prostate_data
 
 # process data
@@ -32,7 +24,7 @@ python npz_to_npy.py \
     -num_workers 4
 
 # export CUDA_VISIBLE_DEVICES=2,3
-# train model
+# train the model
 
 python train_multi_gpus.py \
     -i prostate_processed/npy \
@@ -46,3 +38,15 @@ python train_multi_gpus.py \
     -world_size 2 \
     -node_rank 0 \
     -init_method tcp://127.0.0.1:29456
+
+# evaluate the model
+# remember to change the checkpoint path
+
+python inference_3D.py \
+    -data_root prostate_processed/MedSAM_test/MR_Abd \
+    -pred_save_dir ./preds8/test_npz \
+    -medsam_lite_checkpoint_path work_dir_ddp/MedSAM-Lite-Box-20240415-1132/medsam_lite_best.pth \
+    -num_workers 4 \
+    --save_overlay \
+    -png_save_dir ./preds8/test_visualization \
+    --overwrite
