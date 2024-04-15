@@ -147,19 +147,21 @@ class NpyDataset(Dataset):
         img_padded = np.transpose(img_padded, (2, 0, 1)) # (3, 256, 256)
         assert np.max(img_padded)<=1.0 and np.min(img_padded)>=0.0, 'image should be normalized to [0, 1]'
         gt = np.load(self.gt_path_files[index], 'r', allow_pickle=True) # multiple labels [0, 1,4,5...], (256,256)
-        assert gt.max() >= 1, 'gt should have at least one label'
+        # assert gt.max() >= 1, 'gt should have at least one label'
         gt = cv2.resize(
             gt,
             (img_resize.shape[1], img_resize.shape[0]),
             interpolation=cv2.INTER_NEAREST
         ).astype(np.uint8)
         gt = self.pad_image(gt) # (256, 256)
-        label_ids = np.unique(gt)[1:]
-        try:
-            gt2D = np.uint8(gt == random.choice(label_ids.tolist())) # only one label, (256, 256)
-        except:
-            print(img_name, 'label_ids.tolist()', label_ids.tolist())
-            gt2D = np.uint8(gt == np.max(gt)) # only one label, (256, 256)
+        # label_ids = np.unique(gt)[1:]
+        label_ids = np.array([1])  # only one label
+        gt2D = gt
+        # try:
+        #     gt2D = np.uint8(gt == random.choice(label_ids.tolist())) # only one label, (256, 256)
+        # except:
+        #     print(img_name, 'label_ids.tolist()', label_ids.tolist())
+        #     gt2D = np.uint8(gt == np.max(gt)) # only one label, (256, 256)
         # add data augmentation: random fliplr and random flipud
         if self.data_aug:
             if random.random() > 0.5:
@@ -172,6 +174,10 @@ class NpyDataset(Dataset):
                 # print('DA with flip upside down')
         gt2D = np.uint8(gt2D > 0)
         y_indices, x_indices = np.where(gt2D > 0)
+        # if not then whole image
+        if len(y_indices) == 0:
+            y_indices = np.array([0, 0, 255, 255])
+            x_indices = np.array([0, 255, 0, 255])
         x_min, x_max = np.min(x_indices), np.max(x_indices)
         y_min, y_max = np.min(y_indices), np.max(y_indices)
         # add perturbation to bounding box coordinates
@@ -420,8 +426,11 @@ def main_worker(gpu, ngpus_per_node, args):
     # %%
     print(f"MedSAM Lite size: {sum(p.numel() for p in medsam_lite_model.parameters())}")
     # %%
+    # fix image encoder and prompter encoder, train mask decoder
+    medsam_lite_model.module.image_encoder.requires_grad_(False)
+    medsam_lite_model.module.prompt_encoder.requires_grad_(False)
     optimizer = optim.AdamW(
-        medsam_lite_model.parameters(),
+        medsam_lite_model.module.mask_decoder.parameters(),
         lr=args.lr,
         betas=(0.9, 0.999),
         eps=1e-08,

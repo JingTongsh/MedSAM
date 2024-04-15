@@ -29,7 +29,7 @@ export OMP_NUM_THREADS=1
 
 export NCCL_DEBUG=INFO
 
-dataroot="./data/npy"
+dataroot="prostate_processed/npy"
 pretrained_checkpoint="lite_medsam.pth"
 
 python train_multi_gpus.py \

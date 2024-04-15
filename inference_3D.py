@@ -151,6 +151,9 @@ class MedSAM_Lite(nn.Module):
             dense_prompt_embeddings=dense_embeddings, # (B, 256, 64, 64)
             multimask_output=False,
           ) # (B, 1, 256, 256)
+        
+        # TODO: thresh 
+        # return those with iou_predictions > thresh
 
         return low_res_masks
 
@@ -253,8 +256,11 @@ def medsam_inference(medsam_model, img_embed, box_256, new_size, original_size):
     return medsam_seg
 
 def get_bbox(gt2D, bbox_shift=5):
-    assert np.max(gt2D)==1 and np.min(gt2D)==0.0, f'ground truth should be 0, 1, but got {np.unique(gt2D)}'
+    # assert np.max(gt2D)==1 and np.min(gt2D)==0.0, f'ground truth should be 0, 1, but got {np.unique(gt2D)}'
     y_indices, x_indices = np.where(gt2D > 0)
+    # if none of the pixels are positive, return the whole image
+    if len(y_indices) == 0:
+        return np.array([0, 0, 0, 0])
     x_min, x_max = np.min(x_indices), np.max(x_indices)
     y_min, y_max = np.min(y_indices), np.max(y_indices)
     # add perturbation to bounding box coordinates
@@ -316,6 +322,8 @@ medsam_lite_model = MedSAM_Lite(
 )
 
 medsam_lite_checkpoint = torch.load(medsam_lite_checkpoint_path, map_location='cpu')
+if 'model' in medsam_lite_checkpoint:
+    medsam_lite_checkpoint = medsam_lite_checkpoint['model']
 medsam_lite_model.load_state_dict(medsam_lite_checkpoint)
 medsam_lite_model.to(device)
 medsam_lite_model.eval()
@@ -350,7 +358,8 @@ def MedSAM_infer_npz(gt_path_file):
                 image_embedding = medsam_lite_model.image_encoder(img_256_tensor)
 
             gt = gt_3D[i,:,:] # (H, W)
-            label_ids = np.unique(gt)[1:]
+            # label_ids = np.unique(gt)[1:]
+            label_ids = [1]  ## only one label
             for label_id in label_ids:
                 gt2D = np.uint8(gt == label_id) # only one label, (H, W)
                 if gt2D.shape != (newh, neww):
@@ -361,8 +370,11 @@ def MedSAM_infer_npz(gt_path_file):
                 else:
                     gt2D_resize = gt2D.astype(np.uint8)
                 gt2D_padded = pad_image(gt2D_resize, 256) ## (256, 256)
-                if np.sum(gt2D_padded) > 0:
+                if True or np.sum(gt2D_padded) > 0:
                     box = get_bbox(gt2D_padded, bbox_shift) # (4,)
+                    # if no box then whole image
+                    if np.sum(box) == 0:
+                        box = np.array([0, 0, 255, 255])
                     sam_mask = medsam_inference(medsam_lite_model, image_embedding, box, (newh, neww), (H, W))
                     seg_3D[i, sam_mask>0] = label_id
                     box_list[i][label_id] = box
@@ -376,28 +388,35 @@ def MedSAM_infer_npz(gt_path_file):
 
         # visualize image, mask and bounding box
         if save_overlay:
-            idx = int(seg_3D.shape[0] / 2)
-            box_dict = box_list[idx]
-            fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-            ax[0].imshow(img_3D[idx], cmap='gray')
-            ax[1].imshow(img_3D[idx], cmap='gray')
-            ax[2].imshow(img_3D[idx], cmap='gray')
-            ax[0].set_title("Image")
-            ax[1].set_title("Ground Truth")
-            ax[2].set_title(f"Segmentation")
-            ax[0].axis('off')
-            ax[1].axis('off')
-            ax[2].axis('off')
-            for label_id, box_256 in box_dict.items():
-                color = np.random.rand(3)
-                box_viz = resize_box(box_256, (newh, neww), (H, W))
-                show_mask(gt_3D[idx], ax[1], mask_color=color)
-                show_box(box_viz, ax[1], edgecolor=color)
-                show_mask(seg_3D[idx], ax[2], mask_color=color)
-                show_box(box_viz, ax[2], edgecolor=color)
-            plt.tight_layout()
-            plt.savefig(join(png_save_dir, npz_name.split(".")[0] + '.png'), dpi=300)
-            plt.close()
+            # idx = int(seg_3D.shape[0] / 2)
+            # choose some more idx
+            idx_list = np.random.choice(seg_3D.shape[0], 3)
+            for idx in idx_list:
+                box_dict = box_list[idx]
+                fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+                ax[0].imshow(img_3D[idx], cmap='gray')
+                ax[1].imshow(img_3D[idx], cmap='gray')
+                ax[2].imshow(img_3D[idx], cmap='gray')
+                ax[0].set_title("Image")
+                ax[1].set_title("Ground Truth")
+                ax[2].set_title(f"Segmentation")
+                ax[0].axis('off')
+                ax[1].axis('off')
+                ax[2].axis('off')
+                for label_id, box_256 in box_dict.items():
+                    color = np.random.rand(3)
+                    box_viz = resize_box(box_256, (newh, neww), (H, W))
+                    show_mask(gt_3D[idx], ax[1], mask_color=color)
+                    show_box(box_viz, ax[1], edgecolor=color)
+                    show_mask(seg_3D[idx], ax[2], mask_color=color)
+                    show_box(box_viz, ax[2], edgecolor=color)
+                plt.tight_layout()
+                # more space in the head
+                plt.subplots_adjust(top=0.9)
+                save_file = join(png_save_dir, npz_name.split(".")[0] + f'_{idx}.png')
+                plt.savefig(save_file, dpi=300)
+                plt.close()
+
 
 if __name__ == '__main__':
     num_workers = num_workers

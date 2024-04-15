@@ -10,6 +10,8 @@ makedirs = os.makedirs
 from tqdm import tqdm
 import multiprocessing as mp
 import argparse
+import cv2
+import torch
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-npz_dir", type=str, default="data/npz/MedSAM_train/CT_Abd",
@@ -54,7 +56,10 @@ def convert_npz_to_npy(npz_name):
             gt_i = gts[i, :, :]
 
             gt_i = np.uint8(gt_i)
-            assert img_01.shape[:2] == gt_i.shape
+            if img_01.shape[:2] != gt_i.shape:
+                # print warning, then resize
+                print(f"Image shape {img_01.shape} != GT shape {gt_i.shape}, resizing")
+                gt_i = cv2.resize(gt_i, (img_01.shape[1], img_01.shape[0]), interpolation=cv2.INTER_LINEAR)
             np.save(join(npy_dir, "imgs", name + "-" + str(i).zfill(3) + ".npy"), img_01)
             np.save(join(npy_dir, "gts", name + "-" + str(i).zfill(3) + ".npy"), gt_i)
     else: ## 2D image
