@@ -61,14 +61,17 @@ num_workers = args.num_workers
 voxel_num_thre2d = 100
 voxel_num_thre3d = 1000
 
-names = sorted(os.listdir(gt_path))
+# names = sorted(os.listdir(gt_path))
+# print(f"ori \# files {len(names)=}")
+# names = [
+#     name
+#     for name in names
+#     if os.path.exists(join(nii_path, name.split(gt_name_suffix)[0] + img_name_suffix))
+# ]
+# print(f"after sanity check \# files {len(names)=}")
+
+names = sorted(os.listdir(nii_path))
 print(f"ori \# files {len(names)=}")
-names = [
-    name
-    for name in names
-    if os.path.exists(join(nii_path, name.split(gt_name_suffix)[0] + img_name_suffix))
-]
-print(f"after sanity check \# files {len(names)=}")
 
 # set label ids that are excluded
 remove_label_ids = [
@@ -95,8 +98,15 @@ def preprocess(name, npz_path):
     """
     image_name = name.split(gt_name_suffix)[0] + img_name_suffix
     gt_name = name
-    gt_sitk = sitk.ReadImage(join(gt_path, gt_name))
-    gt_data_ori = np.uint8(sitk.GetArrayFromImage(gt_sitk))
+    gt_file = join(gt_path, gt_name)
+    if os.path.isfile(gt_file):
+        gt_sitk = sitk.ReadImage(join(gt_path, gt_name))
+        gt_data_ori = np.uint8(sitk.GetArrayFromImage(gt_sitk))
+    else:
+        # all zero mask
+        image_ori = sitk.ReadImage(join(nii_path, image_name))
+        image_ori = sitk.GetArrayFromImage(image_ori)
+        gt_data_ori = np.zeros_like(image_ori)
     # remove label ids
     for remove_label_id in remove_label_ids:
         gt_data_ori[gt_data_ori == remove_label_id] = 0
@@ -130,9 +140,10 @@ def preprocess(name, npz_path):
     z_index, _, _ = np.where(gt_data_ori > 0)
     z_index = np.unique(z_index)
 
-    if len(z_index) > 0:
+    if  True or len(z_index) > 0:
         # crop the ground truth with non-zero slices
-        gt_roi = gt_data_ori[z_index, :, :]
+        # gt_roi = gt_data_ori[z_index, :, :]
+        gt_roi = gt_data_ori  # keep the whole ground truth
         # load image and preprocess
         img_sitk = sitk.ReadImage(join(nii_path, image_name))
         image_data = sitk.GetArrayFromImage(img_sitk)
@@ -159,7 +170,8 @@ def preprocess(name, npz_path):
             image_data_pre[image_data == 0] = 0
 
         image_data_pre = np.uint8(image_data_pre)
-        img_roi = image_data_pre[z_index, :, :]
+        # img_roi = image_data_pre[z_index, :, :]
+        img_roi = image_data_pre  # keep the whole image
         np.savez_compressed(join(npz_path, prefix + gt_name.split(gt_name_suffix)[0]+'.npz'), imgs=img_roi, gts=gt_roi, spacing=img_sitk.GetSpacing())
 
         # save the image and ground truth as nii files for sanity check;
@@ -179,8 +191,13 @@ def preprocess(name, npz_path):
             )
 
 if __name__ == "__main__":
-    tr_names = names[:40]
-    ts_names = names[40:]
+    num_training = 900
+    # shuffle
+    np.random.seed(0)
+    np.random.shuffle(names)
+    
+    tr_names = names[:num_training]
+    ts_names = names[num_training:]
 
     preprocess_tr = partial(preprocess, npz_path=npz_tr_path)
     preprocess_ts = partial(preprocess, npz_path=npz_ts_path)
