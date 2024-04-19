@@ -89,8 +89,9 @@ def cal_iou(result, reference):
     intersection = torch.count_nonzero(torch.logical_and(result, reference), dim=[i for i in range(1, result.ndim)])
     union = torch.count_nonzero(torch.logical_or(result, reference), dim=[i for i in range(1, result.ndim)])
     
+    invalid = union == 0
     iou = intersection.float() / union.float()
-    
+    iou[invalid] = 0.0
     return iou.unsqueeze(1)
 
 
@@ -327,7 +328,7 @@ class MedSAM_Lite(nn.Module):
 
 def main(args):
     ngpus_per_node = torch.cuda.device_count()
-    print("Spwaning processces")
+    print("Spawning processces")
     mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
 
 

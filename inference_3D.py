@@ -152,6 +152,15 @@ class MedSAM_Lite(nn.Module):
             multimask_output=False,
           ) # (B, 1, 256, 256)
         
+        
+        thresh = .98
+        # return those with iou_predictions > thresh
+        for k, iou in enumerate(iou_predictions):
+            print('iou', iou)
+            if iou < thresh:
+                low_res_masks[k] = torch.zeros_like(low_res_masks[k])
+
+
         thresh = .98
         # return those with iou_predictions > thresh
         for k, iou in enumerate(iou_predictions):
@@ -244,7 +253,7 @@ def medsam_inference(medsam_model, img_embed, box_256, new_size, original_size):
         boxes = box_torch,
         masks = None,
     )
-    low_res_logits, _ = medsam_model.mask_decoder(
+    low_res_logits, iou_pred = medsam_model.mask_decoder(
         image_embeddings=img_embed, # (B, 256, 64, 64)
         image_pe=medsam_model.prompt_encoder.get_dense_pe(), # (1, 256, 64, 64)
         sparse_prompt_embeddings=sparse_embeddings, # (B, 2, 256)
@@ -256,6 +265,17 @@ def medsam_inference(medsam_model, img_embed, box_256, new_size, original_size):
     low_res_pred = torch.sigmoid(low_res_pred)
     low_res_pred = low_res_pred.squeeze().cpu().numpy()
     medsam_seg = (low_res_pred > 0.5).astype(np.uint8)
+    
+    area = np.sum(medsam_seg)
+    iou_pred = iou_pred.item()
+    
+    print(f"Area pred: {area}, IoU pred: {iou_pred}")
+    
+    # iou_thresh = .2
+    # return those with iou_predictions > thresh
+    # for k, iou in enumerate(iou_preds):
+    #     if iou < iou_thresh:
+    #         low_res_masks[k] = torch.zeros_like(low_res_masks[k])
 
     return medsam_seg
 
@@ -344,6 +364,9 @@ def MedSAM_infer_npz(gt_path_file):
         spacing = npz_data['spacing']
         seg_3D = np.zeros_like(gt_3D, dtype=np.uint8) # (Num, H, W)
         box_list = [dict() for _ in range(img_3D.shape[0])]
+        
+        # pick slices with gt > 0
+        gt_positive_idx = np.where(np.sum(gt_3D, axis=(1, 2)) > 0)[0]
 
         for i in range(img_3D.shape[0]):
             img_2d = img_3D[i,:,:] # (H, W)

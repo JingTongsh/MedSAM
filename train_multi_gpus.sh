@@ -1,5 +1,6 @@
 #!/bin/bash
 
+export CUDA_VISIBLE_DEVICES=6,7
 
 GPUS_PER_NODE=2 # <- Specify the number of GPUs per machine here
 
@@ -43,6 +44,7 @@ python train_multi_gpus.py \
     --data_aug \
     -world_size ${WORLD_SIZE} \
     -node_rank ${NODE_RANK} \
-    -init_method tcp://${MASTER_ADDR}:${MASTER_PORT}
+    -init_method tcp://${MASTER_ADDR}:${MASTER_PORT} \
+    -resume work_dir_lite_medsam
 
 echo "END TIME: $(date)"
