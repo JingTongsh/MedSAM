@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=6,7
+export CUDA_VISIBLE_DEVICES=5,6
 
 GPUS_PER_NODE=2 # <- Specify the number of GPUs per machine here
 
@@ -30,11 +30,13 @@ export OMP_NUM_THREADS=1
 
 export NCCL_DEBUG=INFO
 
-dataroot="prostate_processed/npy"
+tr_dataroot="prostate_foreground/tr_npy"
+ts_dataroot="prostate_foreground/ts_npy"
 pretrained_checkpoint="lite_medsam.pth"
 
 python train_multi_gpus.py \
-    -i ${dataroot} \
+    -i ${tr_dataroot} \
+    -v ${ts_dataroot} \
     -task_name MedSAM-Lite-Box \
     -pretrained_checkpoint ${pretrained_checkpoint} \
     -work_dir ./work_dir_lite_medsam \
@@ -45,6 +47,6 @@ python train_multi_gpus.py \
     -world_size ${WORLD_SIZE} \
     -node_rank ${NODE_RANK} \
     -init_method tcp://${MASTER_ADDR}:${MASTER_PORT} \
-    -resume work_dir_lite_medsam
+    # -resume work_dir_lite_medsam
 
 echo "END TIME: $(date)"

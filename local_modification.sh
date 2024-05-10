@@ -3,27 +3,31 @@ set -exuo pipefail
 # make symbolic link
 # ln -s /sharedata/datasets/Renji_MRI/prostate_dataset/all prostate_data
 
-# process data
+# process data: nii.gz -> npz
+python pre_CT_MR.py \
+    -img_path prostate_data/images \
+    -img_name_suffix .mha \
+    -gt_path prostate_data/labels \
+    -gt_name_suffix .mha \
+    -output_path prostate_foreground \
+    -num_workers 4 \
+    -modality MR \
+    -anatomy Abd \
+    --save_nii
 
-# python pre_CT_MR.py \
-#     -img_path prostate_data/images \
-#     -img_name_suffix .mha \
-#     -gt_path prostate_data/labels \
-#     -gt_name_suffix .mha \
-#     -output_path prostate_processed \
-#     -num_workers 4 \
-#     -modality MR \
-#     -anatomy Abd \
-#     --save_nii
+# process data again: npz -> npy
+# training set
+python npz_to_npy.py \
+    -npz_dir prostate_foreground/MedSAM_train/MR_Abd \
+    -npy_dir prostate_foreground/tr_npy \
+    -num_workers 4
+# testing set
+python npz_to_npy.py \
+    -npz_dir prostate_foreground/MedSAM_test/MR_Abd \
+    -npy_dir prostate_foreground/ts_npy \
+    -num_workers 4
 
-# process data again
-
-# python npz_to_npy.py \
-#     -npz_dir prostate_processed/MedSAM_train/MR_Abd \
-#     -npy_dir prostate_processed/npy \
-#     -num_workers 4
-
-export CUDA_VISIBLE_DEVICES=2,3
+# export CUDA_VISIBLE_DEVICES=2,3
 # train the model
 
 # python train_multi_gpus.py \

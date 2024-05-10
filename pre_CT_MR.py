@@ -140,10 +140,10 @@ def preprocess(name, npz_path):
     z_index, _, _ = np.where(gt_data_ori > 0)
     z_index = np.unique(z_index)
 
-    if  True or len(z_index) > 0:
+    if len(z_index) > 0:
         # crop the ground truth with non-zero slices
-        # gt_roi = gt_data_ori[z_index, :, :]
-        gt_roi = gt_data_ori  # keep the whole ground truth
+        gt_roi = gt_data_ori[z_index, :, :]
+        # gt_roi = gt_data_ori  # keep the whole ground truth
         # load image and preprocess
         img_sitk = sitk.ReadImage(join(nii_path, image_name))
         image_data = sitk.GetArrayFromImage(img_sitk)
@@ -170,8 +170,8 @@ def preprocess(name, npz_path):
             image_data_pre[image_data == 0] = 0
 
         image_data_pre = np.uint8(image_data_pre)
-        # img_roi = image_data_pre[z_index, :, :]
-        img_roi = image_data_pre  # keep the whole image
+        img_roi = image_data_pre[z_index, :, :]
+        # img_roi = image_data_pre  # keep the whole image
         np.savez_compressed(join(npz_path, prefix + gt_name.split(gt_name_suffix)[0]+'.npz'), imgs=img_roi, gts=gt_roi, spacing=img_sitk.GetSpacing())
 
         # save the image and ground truth as nii files for sanity check;

@@ -606,23 +606,56 @@ class TinyViT(nn.Module):
         return {'attention_biases'}
 
     def forward_features(self, x):
+        print('input', x.size())
         # x: (N, C, H, W)
         x = self.patch_embed(x)
+        print('patch embed', x.size())
 
         x = self.layers[0](x)
+        print('layer 0', x.size())
         start_i = 1
 
         for i in range(start_i, len(self.layers)):
             layer = self.layers[i]
             x = layer(x)
+            print(f'layer {i}', x.size())
 
         B, _, C = x.size()
         x = x.view(B, 64, 64, C)
+        print('reshape', x.size())
         x = x.permute(0, 3, 1, 2)
+        print('permute', x.size())
         x = self.neck(x)
+        print('neck', x.size())
 
         return x
 
     def forward(self, x):
         x = self.forward_features(x)
         return x
+
+
+if __name__ == '__main__':
+    x = torch.randn(1, 3, 256, 256)
+    model = TinyViT(
+        img_size=256,
+        in_chans=3,
+        embed_dims=[
+            64, ## (64, 256, 256)
+            128, ## (128, 128, 128)
+            160, ## (160, 64, 64)
+            320 ## (320, 64, 64) 
+        ],
+        depths=[2, 2, 6, 2],
+        num_heads=[2, 4, 5, 10],
+        window_sizes=[7, 7, 14, 7],
+        mlp_ratio=4.,
+        drop_rate=0.,
+        drop_path_rate=0.0,
+        use_checkpoint=False,
+        mbconv_expand_ratio=4.0,
+        local_conv_size=3,
+        layer_lr_decay=0.8
+    )
+    y = model(x)
+    

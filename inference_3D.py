@@ -152,22 +152,6 @@ class MedSAM_Lite(nn.Module):
             multimask_output=False,
           ) # (B, 1, 256, 256)
         
-        
-        thresh = .98
-        # return those with iou_predictions > thresh
-        for k, iou in enumerate(iou_predictions):
-            print('iou', iou)
-            if iou < thresh:
-                low_res_masks[k] = torch.zeros_like(low_res_masks[k])
-
-
-        thresh = .98
-        # return those with iou_predictions > thresh
-        for k, iou in enumerate(iou_predictions):
-            print('iou', iou)
-            if iou < thresh:
-                low_res_masks[k] = torch.zeros_like(low_res_masks[k])
-
         return low_res_masks
 
     @torch.no_grad()
@@ -269,7 +253,7 @@ def medsam_inference(medsam_model, img_embed, box_256, new_size, original_size):
     area = np.sum(medsam_seg)
     iou_pred = iou_pred.item()
     
-    print(f"Area pred: {area}, IoU pred: {iou_pred}")
+    # print(f"Area pred: {area}, IoU pred: {iou_pred}")
     
     # iou_thresh = .2
     # return those with iou_predictions > thresh

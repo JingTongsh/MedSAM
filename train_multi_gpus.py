@@ -12,19 +12,20 @@ from shutil import copyfile
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch import multiprocessing as mp
 from torch import distributed as dist
 from datetime import datetime
+import cv2
+from matplotlib import pyplot as plt
+import argparse
 
 from segment_anything.modeling import MaskDecoder, PromptEncoder, TwoWayTransformer
 from tiny_vit_sam import TinyViT
-import cv2
-import torch.nn.functional as F
+from evaluation import evaluate_metrics
 
-from matplotlib import pyplot as plt
-import argparse
 
 torch.cuda.empty_cache()
 os.environ["OMP_NUM_THREADS"] = "4" # export OMP_NUM_THREADS=4
@@ -37,8 +38,11 @@ os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--tr_npy_path', type=str,
-                        default='data/npy',
+                        default='prostate_foreground/tr_npy',
                         help='Path to training npy files; two subfolders: gts and imgs')
+    parser.add_argument('-v', '--ts_npy_path', type=str,
+                        default='prostate_foreground/ts_npy',
+                        help='Path to testing npy files; two subfolders: gts and imgs')
     parser.add_argument('-task_name', type=str, default='MedSAM-Lite')
     parser.add_argument('-pretrained_checkpoint', type=str, default='lite_medsam.pth',
                         help='Path to pretrained MedSAM-Lite checkpoint')
@@ -328,7 +332,7 @@ class MedSAM_Lite(nn.Module):
 
 def main(args):
     ngpus_per_node = torch.cuda.device_count()
-    print("Spawning processces")
+    print("Spawning processes")
     mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
 
 
@@ -448,8 +452,8 @@ def main_worker(gpu, ngpus_per_node, args):
     ce_loss = nn.BCEWithLogitsLoss(reduction='mean')
     iou_loss = nn.MSELoss(reduction='mean')
     # %%
-    data_root = args.tr_npy_path
-    train_dataset = NpyDataset(data_root=data_root, data_aug=True)
+    tr_data_root = args.tr_npy_path
+    train_dataset = NpyDataset(data_root=tr_data_root, data_aug=True)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_loader = DataLoader(
         train_dataset,
@@ -458,6 +462,16 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=num_workers,
         pin_memory=True,
         sampler=train_sampler,
+        collate_fn=collate_fn
+    )
+    ts_data_root = args.ts_npy_path
+    test_dataset = NpyDataset(data_root=ts_data_root, data_aug=False)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
         collate_fn=collate_fn
     )
     # %%
@@ -484,8 +498,11 @@ def main_worker(gpu, ngpus_per_node, args):
         best_loss = 1e10
 
     train_losses = []
+    test_losses = []
     epoch_times = []
     for epoch in range(start_epoch, num_epochs):
+        # train model
+        medsam_lite_model.train()
         epoch_loss = [1e10 for _ in range(len(train_loader))]
         epoch_start_time = time()
         pbar = tqdm(train_loader)
@@ -507,7 +524,7 @@ def main_worker(gpu, ngpus_per_node, args):
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-            pbar.set_description(f"[RANK {rank}] Epoch {epoch} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, loss: {loss.item():.4f}")
+            pbar.set_description(f"[RANK {rank}, TRAINING] Epoch {epoch} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, loss: {loss.item():.4f}")
 
         epoch_end_time = time()
         epoch_duration = epoch_end_time - epoch_start_time
@@ -548,9 +565,62 @@ def main_worker(gpu, ngpus_per_node, args):
             axes[1].set_ylabel("Duration (s)")
             axes[1].set_xlabel("Epoch")
             plt.tight_layout()
-            plt.savefig(join(model_save_path, "log.png"))
+            plt.savefig(join(model_save_path, "train-loss.png"))
             plt.close()
         dist.barrier()
+        
+        # evaluate with test set
+        medsam_lite_model.eval()
+        test_loss = []
+        logits_pred_all, logits_gt_all = [], []
+        # iou_pred_all, iou_gt_all = [], []
+        pbar = tqdm(test_loader)
+        with torch.no_grad():
+            for step, batch in enumerate(pbar):
+                image = batch["image"]  # (B, 3, 256, 256)
+                gt2D = batch["gt2D"]  # (B, 1, 256, 256)
+                boxes = batch["bboxes"]
+                image, gt2D, boxes = image.to(device), gt2D.to(device), boxes.to(device)
+                logits_pred, iou_pred = medsam_lite_model(image, boxes)  # (B, 1, 256, 256), (B, 1)
+                
+                l_seg = seg_loss(logits_pred, gt2D)
+                l_ce = ce_loss(logits_pred, gt2D.float())
+                mask_loss = l_seg + l_ce
+                iou_gt = cal_iou(torch.sigmoid(logits_pred) > 0.5, gt2D.bool())  # (B, 1)
+                l_iou = iou_loss(iou_pred, iou_gt)
+                loss = mask_loss + l_iou
+                test_loss.append(loss.item())
+                
+                logits_pred_all.append(logits_pred.detach().cpu())
+                logits_gt_all.append(gt2D.detach().cpu())
+                # iou_pred_all.append(iou_pred.detach().cpu())
+                # iou_gt_all.append(iou_gt.detach().cpu())
+                
+                pbar.set_description(f"[RANK {rank}, TESTING] Epoch {epoch} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, loss: {loss.item():.4f}")
+                
+        test_loss = np.mean(test_loss)
+        test_losses.append(test_loss)
+        
+        if is_main_host:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+            ax.plot(test_losses)
+            ax.set_title("Test Loss")
+            ax.set_ylabel("Loss")
+            ax.set_xlabel("Epoch")
+            plt.tight_layout()
+            plt.savefig(join(model_save_path, "test-loss.png"))
+            plt.close()
+            
+            logits_pred_all = torch.cat(logits_pred_all, dim=0)  # (N, 1, 256, 256)
+            logits_gt_all = torch.cat(logits_gt_all, dim=0)  # (N, 1, 256, 256)
+            
+            metrics = evaluate_metrics(logits_pred_all, logits_gt_all, task='binary')
+            print(metrics)
+            with open(join(model_save_path, "metrics.txt"), "a") as f:
+                f.write(f"Epoch {epoch}\n")
+                f.write(str(metrics))
+                f.write("\n")
+            
 
         
 # %%
