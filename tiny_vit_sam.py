@@ -606,27 +606,27 @@ class TinyViT(nn.Module):
         return {'attention_biases'}
 
     def forward_features(self, x):
-        print('input', x.size())
+        # print('input', x.size())
         # x: (N, C, H, W)
         x = self.patch_embed(x)
-        print('patch embed', x.size())
+        # print('patch embed', x.size())
 
         x = self.layers[0](x)
-        print('layer 0', x.size())
+        # print('layer 0', x.size())
         start_i = 1
 
         for i in range(start_i, len(self.layers)):
             layer = self.layers[i]
             x = layer(x)
-            print(f'layer {i}', x.size())
+            # print(f'layer {i}', x.size())
 
         B, _, C = x.size()
         x = x.view(B, 64, 64, C)
-        print('reshape', x.size())
+        # print('reshape', x.size())
         x = x.permute(0, 3, 1, 2)
-        print('permute', x.size())
+        # print('permute', x.size())
         x = self.neck(x)
-        print('neck', x.size())
+        # print('neck', x.size())
 
         return x
 
