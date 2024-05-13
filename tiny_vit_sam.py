@@ -543,6 +543,18 @@ class TinyViT(nn.Module):
         self.apply(self._init_weights)
         self.set_layer_lr_decay(layer_lr_decay)
 
+        self.additional_convs = nn.ModuleList()
+        
+        for k in range(1, self.num_layers):
+            stride2 = 2 if k == 1 else 1
+            add_conv = nn.Sequential(
+                nn.Conv2d(embed_dims[k], 256, kernel_size=1, bias=False,),
+                LayerNorm2d(256),
+                nn.Conv2d(256, 256, kernel_size=3, stride=stride2, padding=1, bias=False,),
+                LayerNorm2d(256)
+            )
+            self.additional_convs.append(add_conv)
+
         self.neck = nn.Sequential(
             nn.Conv2d(
                 embed_dims[-1],
@@ -560,6 +572,8 @@ class TinyViT(nn.Module):
             ),
             LayerNorm2d(256),
         )
+
+        self.conv_down = nn.Conv2d(1024, 256, kernel_size=1, bias=False)
 
     def set_layer_lr_decay(self, layer_lr_decay):
         decay_rate = layer_lr_decay
@@ -608,17 +622,23 @@ class TinyViT(nn.Module):
     def forward_features(self, x):
         # print('input', x.size())
         # x: (N, C, H, W)
+        output = []
         x = self.patch_embed(x)
         # print('patch embed', x.size())
 
         x = self.layers[0](x)
         # print('layer 0', x.size())
+        y = self.additional_convs[0](x.view(x.size(0), 128, 128, x.size(2)).permute(0, 3, 1, 2))
+        output.append(y)
         start_i = 1
 
         for i in range(start_i, len(self.layers)):
             layer = self.layers[i]
             x = layer(x)
             # print(f'layer {i}', x.size())
+            if i < len(self.layers) - 1:
+                y = self.additional_convs[i](x.view(x.size(0), 64, 64, x.size(2)).permute(0, 3, 1, 2))
+                output.append(y)
 
         B, _, C = x.size()
         x = x.view(B, 64, 64, C)
@@ -627,8 +647,16 @@ class TinyViT(nn.Module):
         # print('permute', x.size())
         x = self.neck(x)
         # print('neck', x.size())
+        output.append(x)
 
-        return x
+        # for y in output:
+        #     print(y.size(), y.min(), y.max())
+
+        output = torch.cat(output, dim=1)
+
+        output = self.conv_down(output)
+
+        return output
 
     def forward(self, x):
         x = self.forward_features(x)

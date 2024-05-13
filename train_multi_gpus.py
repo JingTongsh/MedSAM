@@ -409,7 +409,7 @@ def main_worker(gpu, ngpus_per_node, args):
         ## Load pretrained checkpoint if there's no checkpoint to resume from and there's a pretrained checkpoint
         print(f"Loading pretrained checkpoint from {args.pretrained_checkpoint}")
         medsam_lite_checkpoint = torch.load(args.pretrained_checkpoint, map_location="cpu")
-        medsam_lite_model.load_state_dict(medsam_lite_checkpoint, strict=True)
+        medsam_lite_model.load_state_dict(medsam_lite_checkpoint, strict=False)
 
     medsam_lite_model = medsam_lite_model.to(device)
 
@@ -433,6 +433,8 @@ def main_worker(gpu, ngpus_per_node, args):
     # %%
     # fix image encoder and prompter encoder, train mask decoder
     medsam_lite_model.module.image_encoder.requires_grad_(False)
+    medsam_lite_model.module.image_encoder.additional_convs.requires_grad_(True)
+    medsam_lite_model.module.image_encoder.conv_down.requires_grad_(True)
     medsam_lite_model.module.prompt_encoder.requires_grad_(False)
     optimizer = optim.AdamW(
         medsam_lite_model.module.mask_decoder.parameters(),
