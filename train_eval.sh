@@ -6,7 +6,7 @@ python train_multi_gpus.py \
     -i prostate_foreground/tr_npy \
     -v prostate_foreground/ts_npy \
     -task_name MedSAM-Lite-Box \
-    -pretrained_checkpoint lite_medsam.pth \
+    -pretrained_checkpoint ckpt/lite_medsam.pth \
     -work_dir ./work_dir_ddp \
     -batch_size 16 \
     -num_workers 8 \
